@@ -40,6 +40,8 @@ const formatUserResponse = (user) => {
         roles: roles,
         emailVerified: user.emailVerified,
         profilePhoto: user.profilePhoto,
+        favoriteTheme: user.favoriteTheme || null,
+        favoriteColors: user.favoriteColors?.page ? user.favoriteColors : null,
         twoFactorEnabled: user.twoFactorEnabled,
         active: active,
         createdAt: user.createdAt,
@@ -415,7 +417,7 @@ const userController = {
                 });
             }
 
-            const allowedFields = ['firstName', 'lastName', 'bio', 'email', 'username', 'profilePhoto'];
+            const allowedFields = ['firstName', 'lastName', 'bio', 'email', 'username', 'profilePhoto', 'favoriteTheme', 'favoriteColors'];
             if (hasRight(req.user.roles, RIGHTS.MANAGE_ALL_USERS)) {
                 allowedFields.push('roles', 'active');
             }

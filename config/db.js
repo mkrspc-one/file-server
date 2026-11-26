@@ -102,8 +102,34 @@ const getGridFSBucket = () => {
     return gridFSBucket;
 };
 
+// A pooled connection the network has quietly dropped breaks on its next large write. The whole file is in memory,
+// so such a write is tried again on a fresh connection, a second time if needed.
+const NETWORK_FAULTS = new Set(['ECONNRESET', 'EPIPE', 'ETIMEDOUT']);
+const droppedConnection = (error) => error?.name === 'MongoNetworkError' || NETWORK_FAULTS.has(error?.code)
+    || /ECONNRESET|EPIPE|connection .* closed|Database connection not ready/i.test(error?.message || '');
+
+// Waits up to 20 seconds for the connection to come back after a drop.
+const connectionBack = async () => {
+    const until = Date.now() + 20000;
+    while (mongoose.connection.readyState !== 1 && Date.now() < until) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+};
+
 // Store content in GridFS
 const storeInGridFS = async (filePath, content, metadata = {}) => {
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            return await storeOnce(filePath, content, metadata);
+        } catch (error) {
+            if (attempt >= 3 || !droppedConnection(error)) throw error;
+            logger.warn('[GridFS] Connection dropped while storing; trying again', {filePath, attempt, error: error.message});
+            await connectionBack();
+        }
+    }
+};
+
+const storeOnce = async (filePath, content, metadata = {}) => {
     try {
         const bucket = getGridFSBucket();
 
@@ -121,6 +147,7 @@ const storeInGridFS = async (filePath, content, metadata = {}) => {
             });
 
             uploadStream.on('error', (error) => {
+                uploadStream.abort().catch(() => {});
                 logger.error('[GridFS] Upload stream error', {
                     filePath,
                     error: error.message,
